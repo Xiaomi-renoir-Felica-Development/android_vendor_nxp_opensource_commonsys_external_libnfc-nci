@@ -31,9 +31,18 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  *
- *  Copyright 2018-2021 NXP
+ *  Copyright 2018-2023 NXP
  *
  ******************************************************************************/
+ /******************************************************************************
+ *
+ *  Changes from Qualcomm Innovation Center are provided under the following license:
+ *
+ *  Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ *  SPDX-License-Identifier: BSD-3-Clause-Clear
+ *
+ ******************************************************************************/
+
 /******************************************************************************
  *
  *  This file contains the Near Field Communication (NFC) API function
@@ -56,9 +65,11 @@
 #define NXP_EN_SN110U    1
 #define NXP_EN_SN100U    1
 #define NXP_EN_SN220U    1
+#define NXP_EN_PN560     1
 #define NXP_EN_PN557     1
-#define NXP_ANDROID_VER (13U)        /* NXP android version */
-#define NFC_NXP_MW_VERSION_MAJ (0x03) /* MW Major Version */
+#define NXP_EN_SN300U    1
+#define NXP_ANDROID_VER (14U)        /* NXP android version */
+#define NFC_NXP_MW_VERSION_MAJ (0x05) /* MW Major Version */
 #define NFC_NXP_MW_VERSION_MIN (0x00) /* MW Minor Version */
 #define NFC_NXP_MW_CUSTOMER_ID (0x00) /* MW Customer Id */
 #define NFC_NXP_MW_RC_VERSION  (0x00) /* MW RC Version */
@@ -73,6 +84,9 @@
 
 #define NFC_NXP_FW_SN220U_ROMCODE_VERISON (0x01) /*FW sn220u ROM CODE VERSION*/
 #define NFC_NXP_FW_SN220U_MAJOR_VERSION (0x01) /*sFWu sn220u firmware major version*/
+
+#define NFC_NXP_FW_SN300U_ROMCODE_VERISON (0x02) /*FW sn300u ROM CODE VERSION*/
+#define NFC_NXP_FW_SN300U_MAJOR_VERSION (0x20) /*sFWu sn300u firmware major version*/
 
 #endif
 /* NFC application return status codes */
@@ -175,6 +189,7 @@ typedef uint8_t tNFC_STATUS;
 #define NXP_NFC_RESET_MSB(x) (x &= 0x7F)
 #define NXP_NFC_ESE_CONN_PIPE_STATUS  ((unsigned char)0x22)
 #define NXP_NFC_ESE_APDU_PIPE_STATUS  ((unsigned char)0x23)
+#define NXP_NFC_EUICC_APDU_PIPE_STATUS ((unsigned char)0x12)
 /**********************************************
  * NFC Config Parameter IDs defined by NXP NFC
  **********************************************/
@@ -211,6 +226,8 @@ typedef uint8_t tNFC_STATUS;
   ((unsigned char)0xEA) /* param for retrieveing HCI session ID for UICC */
 #define NXP_NFC_PARAM_SWP_SESSIONID_INT1A \
   ((unsigned char)0x1E) /* param for retrieveing HCI session ID for UICC2 */
+#define NXP_NFC_TXLDO_OVER_CURRENT \
+  ((unsigned char)0xE3) /* Core generic error for TXLDO OVER CURRENT */
 #endif
 /**********************************************
  * NFC Config Parameter IDs defined by NCI
@@ -312,6 +329,8 @@ enum {
   NFC_RF_INTF_EXT_STOP_REVT,      /* RF Intf Ext stop response     */
   NFC_NFCEE_MODE_SET_INFO         /* NFCEE Mode Set Notification event*/
 #endif
+  ,
+  NFC_TZ_SECURE_ZONE_DISABLE_NFC_REVT  /* TZ secure zone event to switch OFF NFC */
 };
 typedef uint16_t tNFC_RESPONSE_EVT;
 

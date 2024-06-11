@@ -31,7 +31,7 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  *
- *  Copyright 2018-2021 NXP
+ *  Copyright 2018-2023 NXP
  *
  ******************************************************************************/
 
@@ -46,15 +46,17 @@
 #include <base/logging.h>
 #include <fcntl.h>
 #include <log/log.h>
+#include <statslog_nfc.h>
 #include <sys/stat.h>
-
-#include "nfc_target.h"
+#include <sys/time.h>
 
 #include "include/debug_nfcsnoop.h"
+#include "metrics.h"
 #include "nci_defs.h"
 #include "nci_hmsgs.h"
 #include "nfc_api.h"
 #include "nfc_int.h"
+#include "nfc_target.h"
 #include "rw_api.h"
 #include "rw_int.h"
 
@@ -66,9 +68,6 @@
 #include "nfa_hci_int.h"
 #include "nfc_config.h"
 #endif
-
-#include <statslog.h>
-#include "metrics.h"
 
 using android::base::StringPrintf;
 
@@ -85,11 +84,12 @@ extern std::string nfc_storage_path;
 
 #if (NXP_EXTNS == TRUE)
 #define NCI_MSG_GET_RFSTATUS 0x39
-#define IS_PROCESS_ABORT(status, mt, gid, oid)                                     \
-        ((NCI_MT_RSP == mt && NCI_STATUS_SEMANTIC_ERROR == status)                 \
-          && !(NCI_GID_CORE == gid && NCI_MSG_CORE_SET_POWER_SUB_STATE == oid)     \
-          && !(NCI_GID_RF_MANAGE == gid && NCI_MSG_RF_ISO_DEP_NAK_PRESENCE == oid) \
-          && !(NCI_GID_PROP == gid && NCI_MSG_GET_RFSTATUS == oid))
+#define IS_PROCESS_ABORT(status, mt, gid, oid)                              \
+  ((NCI_MT_RSP == mt && NCI_STATUS_SEMANTIC_ERROR == status) &&             \
+   !(NCI_GID_CORE == gid && NCI_MSG_CORE_SET_POWER_SUB_STATE == oid) &&     \
+   !(NCI_GID_RF_MANAGE == gid && NCI_MSG_RF_ISO_DEP_NAK_PRESENCE == oid) && \
+   !(NCI_GID_RF_MANAGE == gid && NCI_MSG_RF_T3T_POLLING == oid) &&          \
+   !(NCI_GID_PROP == gid && NCI_MSG_GET_RFSTATUS == oid))
 /* LR: Length Reduction Payload size
  * MP: Max Data Packet Payload size*/
 #define NCI_MAX_BUFFER_SIZE(LR, MP) \
@@ -378,8 +378,8 @@ uint8_t nfc_ncif_send_data(tNFC_CONN_CB* p_cb, NFC_HDR* p_data) {
                              (timer_end.tv_usec - timer_start.tv_usec) / 1000;
     memset(&timer_start, 0, sizeof(timer_start));
     memset(&timer_end, 0, sizeof(timer_end));
-    android::util::stats_write(android::util::NFC_HCE_TRANSACTION_OCCURRED,
-                               (int32_t)delta_time_ms);
+    nfc::stats::stats_write(nfc::stats::NFC_HCE_TRANSACTION_OCCURRED,
+                            (int32_t)delta_time_ms);
   }
   return (NCI_STATUS_OK);
 }
@@ -723,9 +723,9 @@ void nfc_ncif_event_status(tNFC_RESPONSE_EVT event, uint8_t status) {
   tNFC_RESPONSE evt_data;
   if (event == NFC_NFCC_TIMEOUT_REVT && status == NFC_STATUS_HW_TIMEOUT) {
     uint32_t cmd_hdr = (nfc_cb.last_hdr[0] << 8) | nfc_cb.last_hdr[1];
-    android::util::stats_write(android::util::NFC_ERROR_OCCURRED,
-                               (int32_t)NCI_TIMEOUT, (int32_t)cmd_hdr,
-                               (int32_t)status);
+    nfc::stats::stats_write(nfc::stats::NFC_ERROR_OCCURRED,
+                            (int32_t)NCI_TIMEOUT, (int32_t)cmd_hdr,
+                            (int32_t)status);
   }
   if (nfc_cb.p_resp_cback) {
     evt_data.status = (tNFC_STATUS)status;
@@ -750,8 +750,8 @@ void nfc_ncif_error_status(uint8_t conn_id, uint8_t status) {
     nfc_conn.status = status;
     (*p_cb->p_cback)(conn_id, NFC_ERROR_CEVT, &nfc_conn);
   }
-  android::util::stats_write(android::util::NFC_ERROR_OCCURRED,
-                             (int32_t)ERROR_NTF, (int32_t)0, (int32_t)status);
+  nfc::stats::stats_write(nfc::stats::NFC_ERROR_OCCURRED, (int32_t)ERROR_NTF,
+                          (int32_t)0, (int32_t)status);
 }
 
 /*******************************************************************************
@@ -1074,20 +1074,18 @@ Available after Technology Detection
   } else if (NCI_DISCOVERY_TYPE_POLL_ACTIVE == p_param->mode) {
     acm_p = &p_param->param.acm_p;
 
-#if (NXP_EXTNS == TRUE)
-    /*Skip RF Tech Specific Parametres +
-      Skip RF Technology mode, Tx , Rx baud rate & length params
+    /* Skip RF Tech Specific Parametres +
+     * Skip RF Technology mode, Tx , Rx baud rate & length params
      * Byte 1         Byte 2     Byte 3    Byte 4
-     * Tech and Mode  Tx BR      Rx BR     Length of Act Param  */
+     * Tech and Mode  Tx BR      Rx BR     Length of Act Param
+     */
     p = p + len + 3;
     plen = *p++;
-    LOG(INFO) << StringPrintf("Length of RF Technology Specific Parameters,"
-                              " plen: 0x%x, atr_res_len: 0x%x", plen, *p);
-#endif
-
     if (plen < 1) {
       goto invalid_packet;
     }
+    LOG(INFO) << StringPrintf(
+        "RF Tech Specific Params, plen: 0x%x, atr_res_len: 0x%x", plen, *p);
     plen--;
 
     acm_p->atr_res_len = *p++;
@@ -1843,6 +1841,11 @@ void nfc_ncif_proc_ee_discover_req(uint8_t* p, uint16_t plen) {
   tNFC_EE_DISCOVER_INFO* p_info;
   uint8_t u8;
 
+  if (!plen) {
+    android_errorWriteLog(0x534e4554, "221856662");
+    return;
+  }
+
   DLOG_IF(INFO, nfc_debug_enabled)
       << StringPrintf("nfc_ncif_proc_ee_discover_req %d len:%d", *p, plen);
 
@@ -2182,6 +2185,19 @@ void nfc_ncif_proc_get_config_rsp(NFC_HDR* p_evt) {
     evt_data.get_config.p_param_tlvs = p;
     (*p_cback)(NFC_GET_CONFIG_REVT, &evt_data);
   }
+}
+
+/*******************************************************************************
+**
+** Function         nfc_ncif_proc_t3t_polling_rsp
+**
+** Description      Handle NCI_MSG_RF_T3T_POLLING RSP
+**
+** Returns          void
+**
+*******************************************************************************/
+void nfc_ncif_proc_t3t_polling_rsp(uint8_t status) {
+  rw_t3t_handle_nci_poll_rsp(status);
 }
 
 /*******************************************************************************
@@ -2581,8 +2597,9 @@ void nfc_ncif_proc_generic_error_ntf(tNFC_STATUS status)
                     nfc_cb.nci_ese_cold_temp_timeout);
       break;
     }
-    case NCI_STATUS_SYNTAX_ERROR:
     case NCI_STATUS_PMU_TXLDO_OVERCURRENT:
+      break;
+    case NCI_STATUS_SYNTAX_ERROR:
     case NCI_STATUS_GPADC_ERROR:
     {
       LOG(ERROR) <<StringPrintf("\nAborting...");
